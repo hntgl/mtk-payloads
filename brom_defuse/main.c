@@ -125,7 +125,10 @@ static uint32_t *find_ldr_literal(uint32_t pc, uint16_t instr, uint8_t *rn)
  */
  static uint32_t search_pattern(uint32_t start, uint32_t end, const uint16_t* pattern, uint32_t plen, const uint16_t* mask)
  {
-     for (uint32_t addr = start; addr < end; addr += 2) {
+     if (start >= end || plen == 0 || plen > (end - start) / sizeof(uint16_t))
+         return 0;
+
+     for (uint32_t addr = start; addr <= end - plen * sizeof(uint16_t); addr += 2) {
          uint16_t *curr = (uint16_t *)addr;
          uint32_t i = 0;
 
@@ -280,6 +283,58 @@ static void find_cmdhandler(void) {
     LOG("F:CMDH");
 }
 
+static uint32_t find_pl_payload(void)
+{
+    static const uint16_t pl_pattern[] = {0x4D4D, 0x014D, 0x0038};
+    uint32_t addr = search_pattern(0x00200000, 0x00210000,
+                                   pl_pattern, 3, NULL);
+    if (!addr)
+        addr = search_pattern(0x02000000, 0x02010000,
+                              pl_pattern, 3, NULL);
+    return addr;
+}
+
+static uint32_t read_pl_length(uint32_t addr)
+{
+    const volatile uint8_t *p = (const volatile uint8_t *)(uintptr_t)(addr + 0x20);
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static int dump_pl(void)
+{
+    uint32_t addr;
+    uint32_t length = 0;
+    uint32_t ack = __builtin_bswap32(0xC1C2C3C4);
+    const uint32_t chunk_size = 64; // will it works on other device ? i don't know...
+
+    if (!g_ctx.usbdl_put_data)
+        return -1;
+
+    addr = find_pl_payload();
+    if (addr) {
+        length = read_pl_length(addr);
+        if (length > UINT32_MAX - addr)
+            length = 0;
+    }
+
+    g_ctx.usbdl_put_data(&ack, sizeof(ack));
+    g_ctx.usbdl_put_data(&length, sizeof(length));
+
+    if (length) {
+        uint8_t *p = (uint8_t *)(uintptr_t)addr;
+        uint32_t sent = 0;
+        while (sent < length) {
+            uint32_t remain = length - sent;
+            uint32_t chunk = (remain > chunk_size) ? chunk_size : remain;
+            g_ctx.usbdl_put_data(p + sent, chunk);
+            sent += chunk;
+        }
+    }
+
+    return addr ? 0 : -2;
+}
+
 __attribute__ ((section(".text.main"))) int main(){
     uint32_t ack = ACK;
 
@@ -335,6 +390,12 @@ __attribute__ ((section(".text.main"))) int main(){
     }
 
     LOG("A:PATCH");
+
+    LOG("B:DUMP_PL");
+    if (dump_pl() != 0)
+        LOG("F:DUMP_PL");
+    else
+        LOG("A:DUMP_PL");
 
     find_cmdhandler();
 
