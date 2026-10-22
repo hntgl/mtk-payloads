@@ -280,6 +280,29 @@ static void find_cmdhandler(void) {
     LOG("F:CMDH");
 }
 
+static void patch_range_checks(void) {
+    static const uint16_t range_pattern1[] = {0xE92D, 0x00F0, 0x4600, 0x4600, 0x4600, 0xF240, 0x129F};
+    static const uint16_t range_mask1[] = {0xFFFF, 0x00FF, 0xFF00, 0xFF00, 0xFF00, 0xFFFF, 0xFFFF};
+    static const uint16_t range_pattern2[] = {0xB570, 0x4600, 0x4600, 0x4600, 0xF240, 0x129F};
+    static const uint16_t range_mask2[] = {0xFFFF, 0xFF00, 0xFF00, 0xFF00, 0xFFFF, 0xFFFF};
+
+    LOG("B:RANGE");
+    uint32_t addr = search_pattern(g_ctx.brom_start, g_ctx.brom_end, range_pattern1, 7, range_mask1);
+    if (!addr) {
+        addr = search_pattern(g_ctx.brom_start, g_ctx.brom_end, range_pattern2, 6, range_mask2);
+    }
+
+    if (!addr) {
+        LOG("F:RANGE");
+        return;
+    }
+
+    ((volatile uint16_t*)addr)[0] = 0x2000; // mov r0, #0
+    ((volatile uint16_t*)addr)[1] = 0x4770; // bx lr
+
+    LOG("O:RANGE");
+}
+
 __attribute__ ((section(".text.main"))) int main(){
     uint32_t ack = ACK;
 
@@ -337,6 +360,7 @@ __attribute__ ((section(".text.main"))) int main(){
     LOG("A:PATCH");
 
     find_cmdhandler();
+    patch_range_checks();
 
     /* Finally, invalidate the cache */
     LOG("B:ICACHE");
