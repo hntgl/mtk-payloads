@@ -64,14 +64,14 @@ int download(struct com_channel_struct *channel, const char *filename, char **da
 
     u32 total_length = atoui(vec[1]);
 
-    if (*data_len <= total_length) {
-        printf("Buffer too small: have %u, need %u\n", *data_len, total_length + 1);
+    if (*data_len < total_length) {
+        printf("Buffer too small: have %u, need %u\n", *data_len, total_length);
         channel->write((u8 *)"ERR", 4);
         return STATUS_ERR;
     }
 
     *data_len = total_length;
-    memset(*data_buf, 0, total_length + 4);
+    memset(*data_buf, 0, total_length);
 
     channel->write((u8 *)"OK", 3);
 
@@ -95,7 +95,6 @@ int download(struct com_channel_struct *channel, const char *filename, char **da
         channel->write((u8 *)"OK", 3);
     }
 
-    (*data_buf)[total_length] = 0;
     printf("Downloaded %u bytes for %s\n", xfered, desc);
     return STATUS_OK;
 }
@@ -114,8 +113,7 @@ int cmd_patch_mem(struct com_channel_struct *channel, const char *xml)
 
     char *dst = (char *)(uptr)addr;
 
-    /* + 4 or download fails on '*pdata_len <= total_length' */
-    u32 size = len + 4;
+    u32 size = len;
 
     int status = download(channel, "mempatch.bin", &dst, &size, "memory patch");
     if (status != STATUS_OK) {
