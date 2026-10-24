@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.frostix = {
     url = "github:shomykohai/frostix";
     inputs.nixpkgs.follows = "nixpkgs";
@@ -11,8 +11,10 @@
     ...
   } @ inputs: {
     devShells.x86_64-linux.default = let
-      pkgs = import nixpkgs {system = "x86_64-linux";};
-      frostix = inputs.frostix.packages.${pkgs.system};
+      system = "x86_64-linux";
+      pkgs = import nixpkgs { inherit system; };
+      frostix = inputs.frostix.legacyPackages.${system};
+      gccToolchain = frostix.gcc-toolchain.gcc-arm-linux-gnueabihf-12;
     in
       pkgs.mkShell {
         nativeBuildInputs = [
