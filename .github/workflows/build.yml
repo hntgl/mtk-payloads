@@ -33,8 +33,8 @@ jobs:
       - name: Build payloads (legacy Makefiles)
         run: |
           nix develop --command bash -euo pipefail -c '
-            for f in */Makefile; do
-              dir=${f%/Makefile}
+            dirs=$(sed -n "/^DIRS=(/,/^)/p" build_all.sh | sed -e "s/^DIRS=(//" -e "s/^)//" | tr -s "[:space:]" "\n" | grep -v "^$")
+            for dir in $dirs; do
               if [ -f "$dir/payload.mk" ]; then
                 continue
               fi
