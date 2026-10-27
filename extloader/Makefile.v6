@@ -15,7 +15,7 @@ SRC       := v6.c
 OUT_ARM   := ../payloads/extloaderv6_arm
 OUT_ARM64 := ../payloads/extloaderv6_arm64
 
-COMMON_CFLAGS := -std=gnu99 -Os -fPIE \
+COMMON_CFLAGS := -std=gnu99 -Os -fPIE -ffreestanding \
 	-fno-builtin-printf -fno-builtin-memcpy \
 	-fno-strict-aliasing -DPRINTF_DISABLE_SUPPORT_FLOAT=1
 
