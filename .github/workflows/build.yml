@@ -12,6 +12,13 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  ARM_GNU_VERSION: 14.2.rel1
+  CROSS_COMPILE: arm-none-eabi-
+  CROSS_COMPILE_arm: arm-none-eabi-
+  CROSS_COMPILE_64: aarch64-none-elf-
+  CROSS_COMPILE_arm64: aarch64-none-elf-
+
 jobs:
   payloads:
     runs-on: ubuntu-latest
@@ -21,33 +28,81 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+      - name: Install toolchains
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dos2unix gcc-arm-none-eabi binutils-arm-none-eabi
+
+          arm_gnu_dir="arm-gnu-toolchain-${ARM_GNU_VERSION}-x86_64-aarch64-none-elf"
+          curl -fsSL --retry 3 \
+            "https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_GNU_VERSION}/binrel/${arm_gnu_dir}.tar.xz" \
+            -o "/tmp/${arm_gnu_dir}.tar.xz"
+          tar -xJf "/tmp/${arm_gnu_dir}.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/${arm_gnu_dir}/bin" >> "$GITHUB_PATH"
+
+          arm-none-eabi-gcc --version | head -1
+          "$RUNNER_TEMP/${arm_gnu_dir}/bin/aarch64-none-elf-gcc" --version | head -1
+
+      - name: Normalize scripts
+        run: |
+          find . -name '*.sh' -not -path './.git/*' -print0 | xargs -0 -r dos2unix --
+          chmod +x build_all.sh */build.sh
 
       - name: Build payloads (new build system)
-        run: nix develop --command make -j"$(nproc)" all
+        run: make -j"$(nproc)" all
 
       - name: Build payloads (legacy Makefiles)
         run: |
-          nix develop --command bash -euo pipefail -c '
-            dirs=$(sed -n "/^DIRS=(/,/^)/p" build_all.sh | sed -e "s/^DIRS=(//" -e "s/^)//" | tr -s "[:space:]" "\n" | grep -v "^$")
-            for dir in $dirs; do
-              if [ -f "$dir/payload.mk" ]; then
-                continue
-              fi
-              echo "::group::build $dir"
-              make -C "$dir" -j"$(nproc)"
-              echo "::endgroup::"
-            done
-          '
+          set -euo pipefail
+          dirs=$(sed -n '/^DIRS=(/,/^)/p' build_all.sh | sed -e 's/^DIRS=(//' -e 's/^)//' | tr -s '[:space:]' '\n' | grep -v '^$')
+          for dir in $dirs; do
+            if [ -f "$dir/payload.mk" ]; then
+              continue
+            fi
+            echo "::group::build $dir"
+            make -C "$dir" -j"$(nproc)"
+            echo "::endgroup::"
+          done
 
-      - name: Upload payloads
+      - name: Build extloader v6
+        run: make -C extloader -f Makefile.v6 -j"$(nproc)"
+
+      - name: Verify expected payloads
+        run: |
+          expected="
+          payloads/da_x.bin
+          payloads/da_xml_arm.bin
+          payloads/da_xml_arm64.bin
+          payloads/hakujoudai_arm.bin
+          payloads/hakujoudai_arm64.bin
+          payloads/extloader_v5.bin
+          payloads/extloaderv6_arm.bin
+          payloads/extloaderv6_arm64.bin
+          payloads/brom_defuse.bin
+          payloads/sla_xml_arm.bin
+          payloads/sla_xml_arm64.bin
+          "
+          missing=0
+          for f in $expected; do
+            if [ -s "$f" ]; then
+              echo "ok   $f ($(stat -c %s "$f") bytes)"
+            else
+              echo "::error file=$f::$f is missing or empty"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Missing $missing expected payload(s)"
+            exit 1
+          fi
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: payloads-${{ github.sha }}
-          path: payloads/
+          path: |
+            payloads/
+            out/
+            compile_commands.json
           if-no-files-found: error
           retention-days: 14
